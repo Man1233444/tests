@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dizzy Lab Extended 🌌🔊</title>
+<title>Dizzy Lab - Fullscreen Clear Screen</title>
 <style>
 html, body {
   margin: 0; padding: 0; overflow: hidden;
@@ -36,6 +36,9 @@ h1 {
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
+  background: rgba(0,0,0,0.4);
+  padding: 10px;
+  border-radius: 10px;
 }
 
 button, input {
@@ -49,7 +52,7 @@ button, input {
 
 <div class="illusion"></div>
 
-<div class="controls">
+<div class="controls" id="controls">
   <label>Frequency (Hz): </label>
   <input type="range" id="freq" min="20" max="120" value="40">
   <span id="freqVal">40</span> Hz
@@ -65,6 +68,7 @@ button, input {
   <button onclick="start()">Start</button>
   <button onclick="stop()">Stop</button>
   <button onclick="toggleFullscreen()">Fullscreen</button>
+  <button onclick="clearScreen()">Clear Screen</button>
 </div>
 
 <script>
@@ -72,15 +76,14 @@ let audioCtx, oscillator, gainNode, panNode;
 let pulseInterval, rotateRAF, variationRAF;
 let baseAngle = 0;
 
-// DOM elements
 const freqSlider = document.getElementById("freq");
 const freqVal = document.getElementById("freqVal");
 const pulseSlider = document.getElementById("pulse");
 const pulseVal = document.getElementById("pulseVal");
 const rotateSlider = document.getElementById("rotate");
 const rotateVal = document.getElementById("rotateVal");
+const controlsDiv = document.getElementById("controls");
 
-// Update slider displays
 freqSlider.oninput = () => {
   freqVal.textContent = freqSlider.value;
   if (oscillator) oscillator.frequency.setValueAtTime(freqSlider.value, audioCtx.currentTime);
@@ -88,7 +91,7 @@ freqSlider.oninput = () => {
 pulseSlider.oninput = () => { pulseVal.textContent = pulseSlider.value; };
 rotateSlider.oninput = () => { rotateVal.textContent = rotateSlider.value; };
 
-// Start audio + visual variations
+// Start audio + visual variation
 function start() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -104,9 +107,9 @@ function start() {
   panNode.connect(audioCtx.destination);
   oscillator.start();
 
-  // Pulsing effect with slow variation
+  // Pulsing effect
   pulseInterval = setInterval(() => {
-    const time = Date.now() * 0.001; // seconds
+    const time = Date.now() * 0.001;
     const pulseValue = 0.3 + 0.2 * Math.sin(time * pulseSlider.value);
     gainNode.gain.setValueAtTime(pulseValue, audioCtx.currentTime);
   }, 50);
@@ -114,17 +117,17 @@ function start() {
   // Stereo rotation + continuous variation
   function rotateSound() {
     const time = Date.now() * 0.001;
-    baseAngle += 0.01 * rotateSlider.value; // base rotation speed
-    const pan = Math.sin(baseAngle + 0.2 * Math.sin(time * 0.05)); // slow variation over minutes
+    baseAngle += 0.01 * rotateSlider.value;
+    const pan = Math.sin(baseAngle + 0.2 * Math.sin(time * 0.05));
     panNode.pan.setValueAtTime(pan, audioCtx.currentTime);
     rotateRAF = requestAnimationFrame(rotateSound);
   }
   rotateSound();
 
-  // Optional: slowly modulate frequency for variation over minutes
+  // Slowly modulate frequency for long-term variation
   function varyFrequency() {
     const time = Date.now() * 0.001;
-    const mod = 5 * Math.sin(time * 0.02); // ±5 Hz over ~5 min cycle
+    const mod = 5 * Math.sin(time * 0.02); 
     oscillator.frequency.setValueAtTime(parseFloat(freqSlider.value) + mod, audioCtx.currentTime);
     variationRAF = requestAnimationFrame(varyFrequency);
   }
@@ -143,6 +146,17 @@ function stop() {
 function toggleFullscreen() {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen();
   else document.exitFullscreen();
+}
+
+// Clear / Hide controls
+function clearScreen() {
+  if (controlsDiv.style.display === "none") {
+    controlsDiv.style.display = "block";
+    document.querySelector("h1").style.display = "block";
+  } else {
+    controlsDiv.style.display = "none";
+    document.querySelector("h1").style.display = "none";
+  }
 }
 </script>
 
