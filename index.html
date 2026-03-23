@@ -2,67 +2,47 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dizzy Effect Lab - Fullscreen</title>
+<title>Dizzy Lab - Fullscreen + Stereo</title>
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    overflow: hidden; /* hide scrollbars */
-    background: black;
-    color: white;
-    font-family: Arial, sans-serif;
-    text-align: center;
-    height: 100%;
-    width: 100%;
-  }
+html, body {
+  margin: 0; padding: 0; overflow: hidden;
+  background: black; color: white; font-family: Arial, sans-serif;
+  height: 100%; width: 100%;
+  text-align: center;
+}
 
-  h1 {
-    margin: 20px;
-    z-index: 10;
-    position: relative;
-  }
+h1 {
+  margin: 20px; position: relative; z-index: 10;
+}
 
-  /* Fullscreen spinning illusion */
-  .illusion {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 1000px; /* large so it fills screen when scaled */
-    height: 1000px;
-    margin-left: -500px;
-    margin-top: -500px;
-    border-radius: 50%;
-    background: repeating-conic-gradient(
-      white 0deg 10deg,
-      black 10deg 20deg
-    );
-    animation: spin 5s linear infinite;
-    z-index: 0;
-  }
+/* Fullscreen spinning spiral illusion */
+.illusion {
+  position: absolute; top: 50%; left: 50%;
+  width: 1000px; height: 1000px;
+  margin-left: -500px; margin-top: -500px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(white 0deg 10deg, black 10deg 20deg);
+  animation: spin 5s linear infinite;
+  z-index: 0;
+}
 
-  @keyframes spin {
-    from { transform: rotate(0deg) scale(1); }
-    to { transform: rotate(360deg) scale(1.2); }
-  }
+@keyframes spin {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1.2); }
+}
 
-  .controls {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-  }
+.controls {
+  position: absolute; top: 10px; left: 50%;
+  transform: translateX(-50%); z-index: 10;
+}
 
-  button, input {
-    margin: 5px;
-    padding: 10px;
-    font-size: 16px;
-  }
+button, input { margin: 5px; padding: 10px; font-size: 16px; }
+
 </style>
 </head>
 <body>
 
-<h1>Dizzy Effect Lab 🌀🔊</h1>
+<h1>Dizzy Lab 🌀🔊 (Stereo Edition)</h1>
 
 <div class="illusion"></div>
 
@@ -71,52 +51,50 @@
   <input type="range" id="freq" min="20" max="120" value="40">
   <span id="freqVal">40</span> Hz
   <br>
-
   <label>Pulsing Speed: </label>
   <input type="range" id="pulse" min="1" max="10" value="3">
   <span id="pulseVal">3</span>
   <br>
-
+  <label>Rotation Speed (Hz): </label>
+  <input type="range" id="rotate" min="0.1" max="2" step="0.1" value="0.5">
+  <span id="rotateVal">0.5</span>
+  <br>
   <button onclick="start()">Start Sound</button>
   <button onclick="stop()">Stop Sound</button>
   <button onclick="toggleFullscreen()">Fullscreen</button>
 </div>
 
 <script>
-let audioCtx;
-let oscillator;
-let gainNode;
+let audioCtx, oscillator, gainNode, panNode;
 let pulseInterval;
-
 const freqSlider = document.getElementById("freq");
 const freqVal = document.getElementById("freqVal");
-
 const pulseSlider = document.getElementById("pulse");
 const pulseVal = document.getElementById("pulseVal");
+const rotateSlider = document.getElementById("rotate");
+const rotateVal = document.getElementById("rotateVal");
 
 freqSlider.oninput = () => {
   freqVal.textContent = freqSlider.value;
-  if (oscillator) {
-    oscillator.frequency.setValueAtTime(freqSlider.value, audioCtx.currentTime);
-  }
+  if (oscillator) oscillator.frequency.setValueAtTime(freqSlider.value, audioCtx.currentTime);
 };
 
-pulseSlider.oninput = () => {
-  pulseVal.textContent = pulseSlider.value;
-};
+pulseSlider.oninput = () => { pulseVal.textContent = pulseSlider.value; };
+rotateSlider.oninput = () => { rotateVal.textContent = rotateSlider.value; };
 
 function start() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
   oscillator = audioCtx.createOscillator();
   gainNode = audioCtx.createGain();
+  panNode = audioCtx.createStereoPanner();
 
   oscillator.type = "sine";
   oscillator.frequency.setValueAtTime(freqSlider.value, audioCtx.currentTime);
 
   oscillator.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-
+  gainNode.connect(panNode);
+  panNode.connect(audioCtx.destination);
   oscillator.start();
 
   // Pulsing effect
@@ -125,25 +103,26 @@ function start() {
     gainNode.gain.setValueAtTime(on ? 0.5 : 0.0, audioCtx.currentTime);
     on = !on;
   }, 1000 / pulseSlider.value);
+
+  // Stereo rotation effect
+  let angle = 0;
+  function rotateSound() {
+    angle += rotateSlider.value * 0.02; // rotation speed scaling
+    let pan = Math.sin(angle);
+    panNode.pan.setValueAtTime(pan, audioCtx.currentTime);
+    requestAnimationFrame(rotateSound);
+  }
+  rotateSound();
 }
 
 function stop() {
-  if (oscillator) {
-    oscillator.stop();
-    oscillator.disconnect();
-    oscillator = null;
-  }
-  if (pulseInterval) {
-    clearInterval(pulseInterval);
-  }
+  if (oscillator) { oscillator.stop(); oscillator.disconnect(); oscillator = null; }
+  if (pulseInterval) { clearInterval(pulseInterval); }
 }
 
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen();
-  } else {
-    document.exitFullscreen();
-  }
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
 }
 </script>
 
