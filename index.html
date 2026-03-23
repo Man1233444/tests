@@ -2,20 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dizzy Lab - Fullscreen + Stereo</title>
+<title>Dizzy Lab Extended 🌌🔊</title>
 <style>
 html, body {
   margin: 0; padding: 0; overflow: hidden;
   background: black; color: white; font-family: Arial, sans-serif;
-  height: 100%; width: 100%;
-  text-align: center;
+  height: 100%; width: 100%; text-align: center;
 }
 
 h1 {
   margin: 20px; position: relative; z-index: 10;
 }
 
-/* Fullscreen spinning spiral illusion */
 .illusion {
   position: absolute; top: 50%; left: 50%;
   width: 1000px; height: 1000px;
@@ -27,22 +25,27 @@ h1 {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg) scale(1); }
-  to { transform: rotate(360deg) scale(1.2); }
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.15); }
+  100% { transform: rotate(360deg) scale(1.2); }
 }
 
 .controls {
-  position: absolute; top: 10px; left: 50%;
-  transform: translateX(-50%); z-index: 10;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
 }
 
-button, input { margin: 5px; padding: 10px; font-size: 16px; }
-
+button, input {
+  margin: 5px; padding: 10px; font-size: 16px;
+}
 </style>
 </head>
 <body>
 
-<h1>Dizzy Lab 🌀🔊 (Stereo Edition)</h1>
+<h1>Dizzy Lab Extended 🌌🔊</h1>
 
 <div class="illusion"></div>
 
@@ -59,14 +62,17 @@ button, input { margin: 5px; padding: 10px; font-size: 16px; }
   <input type="range" id="rotate" min="0.1" max="2" step="0.1" value="0.5">
   <span id="rotateVal">0.5</span>
   <br>
-  <button onclick="start()">Start Sound</button>
-  <button onclick="stop()">Stop Sound</button>
+  <button onclick="start()">Start</button>
+  <button onclick="stop()">Stop</button>
   <button onclick="toggleFullscreen()">Fullscreen</button>
 </div>
 
 <script>
 let audioCtx, oscillator, gainNode, panNode;
-let pulseInterval;
+let pulseInterval, rotateRAF, variationRAF;
+let baseAngle = 0;
+
+// DOM elements
 const freqSlider = document.getElementById("freq");
 const freqVal = document.getElementById("freqVal");
 const pulseSlider = document.getElementById("pulse");
@@ -74,14 +80,15 @@ const pulseVal = document.getElementById("pulseVal");
 const rotateSlider = document.getElementById("rotate");
 const rotateVal = document.getElementById("rotateVal");
 
+// Update slider displays
 freqSlider.oninput = () => {
   freqVal.textContent = freqSlider.value;
   if (oscillator) oscillator.frequency.setValueAtTime(freqSlider.value, audioCtx.currentTime);
 };
-
 pulseSlider.oninput = () => { pulseVal.textContent = pulseSlider.value; };
 rotateSlider.oninput = () => { rotateVal.textContent = rotateSlider.value; };
 
+// Start audio + visual variations
 function start() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -97,29 +104,42 @@ function start() {
   panNode.connect(audioCtx.destination);
   oscillator.start();
 
-  // Pulsing effect
-  let on = true;
+  // Pulsing effect with slow variation
   pulseInterval = setInterval(() => {
-    gainNode.gain.setValueAtTime(on ? 0.5 : 0.0, audioCtx.currentTime);
-    on = !on;
-  }, 1000 / pulseSlider.value);
+    const time = Date.now() * 0.001; // seconds
+    const pulseValue = 0.3 + 0.2 * Math.sin(time * pulseSlider.value);
+    gainNode.gain.setValueAtTime(pulseValue, audioCtx.currentTime);
+  }, 50);
 
-  // Stereo rotation effect
-  let angle = 0;
+  // Stereo rotation + continuous variation
   function rotateSound() {
-    angle += rotateSlider.value * 0.02; // rotation speed scaling
-    let pan = Math.sin(angle);
+    const time = Date.now() * 0.001;
+    baseAngle += 0.01 * rotateSlider.value; // base rotation speed
+    const pan = Math.sin(baseAngle + 0.2 * Math.sin(time * 0.05)); // slow variation over minutes
     panNode.pan.setValueAtTime(pan, audioCtx.currentTime);
-    requestAnimationFrame(rotateSound);
+    rotateRAF = requestAnimationFrame(rotateSound);
   }
   rotateSound();
+
+  // Optional: slowly modulate frequency for variation over minutes
+  function varyFrequency() {
+    const time = Date.now() * 0.001;
+    const mod = 5 * Math.sin(time * 0.02); // ±5 Hz over ~5 min cycle
+    oscillator.frequency.setValueAtTime(parseFloat(freqSlider.value) + mod, audioCtx.currentTime);
+    variationRAF = requestAnimationFrame(varyFrequency);
+  }
+  varyFrequency();
 }
 
+// Stop all
 function stop() {
   if (oscillator) { oscillator.stop(); oscillator.disconnect(); oscillator = null; }
   if (pulseInterval) { clearInterval(pulseInterval); }
+  if (rotateRAF) { cancelAnimationFrame(rotateRAF); }
+  if (variationRAF) { cancelAnimationFrame(variationRAF); }
 }
 
+// Fullscreen toggle
 function toggleFullscreen() {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen();
   else document.exitFullscreen();
