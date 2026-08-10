@@ -3,159 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Interactive Skeleton Workspace</title>
+    <title>AI Skeleton Body Tracker</title>
+    
+    <!-- Load modern standalone MediaPipe Pose detection scripts from alternative fast servers -->
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 12px; border: 3px solid #333; overflow: hidden; cursor: move; }
-        canvas { width: 640px; height: 480px; display: block; }
-        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.1rem; }
-        .controls { color: #aaa; font-size: 0.9rem; margin-top: 5px; }
+        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 12px; overflow: hidden; border: 3px solid #333; }
+        
+        /* Mirror elements horizontally so it behaves like a natural reflection mirror */
+        video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
+        
+        /* Set up standard layer order */
+        video { z-index: 1; display: block; }
+        canvas { z-index: 5; }
+        
+        .controls { margin-top: 15px; }
+        button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin: 5px; }
+        button:hover { background: #00cc6e; }
+        button.toggle-btn { background: #333; color: white; border: 2px solid #555; }
+        button.toggle-btn:hover { background: #444; }
+        #status { font-weight: bold; color: #ffcc00; margin-top: 10px; font-size: 1.1rem; }
     </style>
 </head>
 <body>
 
-    <h1>Interactive Skeleton Workspace</h1>
-    <div id="status">Active! Click and drag any node joint to test body movement lines.</div>
-    <div class="controls">Simulates real skeleton constraints without complex AI server dependencies.</div>
+    <h1>AI Body Skeleton Tracker</h1>
+    <div id="status">Click "Start Tracker" to launch the camera...</div>
+
+    <div class="controls">
+        <button onclick="startTracker()">Start Tracker</button>
+        <button class="toggle-btn" onclick="toggleCameraView()">Show/Hide Camera View</button>
+    </div>
 
     <div class="box">
-        <canvas id="skeletonCanvas"></canvas>
+        <!-- Background Webcam Video Stream Layer -->
+        <video id="webcam" playsinline muted></video>
+        <!-- Foreground Neon Skeleton Tracking Layer -->
+        <canvas id="output"></canvas>
     </div>
 
     <script>
-        const canvas = document.getElementById('skeletonCanvas');
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
+        
+        let poseEngine;
+        let activeCamera;
+        let isCameraVisible = true;
 
-        canvas.width = 640;
-        canvas.height = 480;
+        function toggleCameraView() {
+            isCameraVisible = !isCameraVisible;
+            video.style.display = isCameraVisible ? 'block' : 'none';
+        }
 
-        // Base structural coordinates mapping a default standing posture pose
-        let joints = {
-            head: { x: 320, y: 80, radius: 14, label: "Head" },
-            neck: { x: 320, y: 130, radius: 8, label: "Neck" },
-            left_shoulder: { x: 260, y: 150, radius: 8, label: "L Shoulder" },
-            right_shoulder: { x: 380, y: 150, radius: 8, label: "R Shoulder" },
-            left_elbow: { x: 220, y: 220, radius: 8, label: "L Elbow" },
-            right_elbow: { x: 420, y: 220, radius: 8, label: "R Elbow" },
-            left_wrist: { x: 190, y: 290, radius: 8, label: "L Wrist" },
-            right_wrist: { x: 450, y: 290, radius: 8, label: "R Wrist" },
-            spine_mid: { x: 320, y: 230, radius: 6, label: "Spine" },
-            left_hip: { x: 280, y: 300, radius: 8, label: "L Hip" },
-            right_hip: { x: 360, y: 300, radius: 8, label: "R Hip" },
-            left_knee: { x: 270, y: 380, radius: 8, label: "L Knee" },
-            right_knee: { x: 370, y: 380, radius: 8, label: "R Knee" },
-            left_ankle: { x: 260, y: 450, radius: 8, label: "L Ankle" },
-            right_ankle: { x: 360, y: 450, radius: 8, label: "R Ankle" }
-        };
-
-        // Standard human body structural bone connection layout paths
-        const bones = [
-            ['head', 'neck'],
-            ['neck', 'left_shoulder'], ['neck', 'right_shoulder'],
-            ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
-            ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
-            ['neck', 'spine_mid'],
-            ['spine_mid', 'left_hip'], ['spine_mid', 'right_hip'],
-            ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
-            ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
-        ];
-
-        let selectedJoint = null;
-
-        function updateScreen() {
-            // Clear background matrix canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw connecting skeleton vectors
-            bones.forEach(([startKey, endKey]) => {
-                const startNode = joints[startKey];
-                const endNode = joints[endKey];
-                
-                ctx.beginPath();
-                ctx.moveTo(startNode.x, startNode.y);
-                ctx.lineTo(endNode.x, endNode.y);
-                ctx.strokeStyle = '#00ff88'; // Neon Green bone layout
-                ctx.lineWidth = 6;
-                ctx.lineCap = 'round';
-                ctx.stroke();
+        async function startTracker() {
+            document.getElementById('status').innerText = 'Waking up camera and setting configuration rules...';
+            
+            // 1. Initialize the ultra-stable alternative MediaPipe Pose constructor engine
+            poseEngine = new Pose({
+                locateFile: (file) => `https://jsdelivr.net{file}`
             });
 
-            // Draw individual anchor control joints
-            for (let key in joints) {
-                const joint = joints[key];
-                
-                ctx.beginPath();
-                ctx.arc(joint.x, joint.y, joint.radius, 0, 2 * Math.PI);
-                ctx.fillStyle = (selectedJoint === key) ? '#ffcc00' : '#ffffff'; // Highlight active selection
-                ctx.fill();
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 2;
-                ctx.stroke();
+            poseEngine.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            // 2. Direct data pipelines straight to our custom canvas painting routine
+            poseEngine.onResults(onPoseResults);
+
+            // 3. Connect hardware streams directly via MediaPipe's failproof native camera system
+            activeCamera = new Camera(video, {
+                onFrame: async () => {
+                    await poseEngine.send({ image: video });
+                },
+                width: 640,
+                height: 480
+            });
+
+            canvas.width = 640;
+            canvas.height = 480;
+
+            document.getElementById('status').innerText = 'Requesting camera system permission...';
+            await activeCamera.start();
+            document.getElementById('status').innerText = 'Tracking active! Stand fully back into frame.';
+        }
+
+        function onPoseResults(results) {
+            // Wipe canvas frame dry so lines do not smudge or stack over time
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // If the camera view button is turned OFF, paint a solid background instead of video frames
+            if (!isCameraVisible) {
+                ctx.fillStyle = '#222';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
-        }
 
-        // Logic tracking interactions
-        function getMouseCoordinates(event) {
-            const rect = canvas.getBoundingClientRect();
-            return {
-                x: (event.clientX - rect.left) * (canvas.width / rect.width),
-                y: (event.clientY - rect.top) * (canvas.height / rect.height)
-            };
-        }
+            // Return early if no human frame geometry is identified inside the pixels
+            if (!results.poseLandmarks) return;
 
-        canvas.addEventListener('mousedown', (e) => {
-            const pos = getMouseCoordinates(e);
-            
-            // Check if cursor maps close enough to click a target joint
-            for (let key in joints) {
-                const joint = joints[key];
-                const distance = Math.hypot(pos.x - joint.x, pos.y - joint.y);
-                if (distance <= joint.radius + 5) {
-                    selectedJoint = key;
-                    break;
+            const landmarks = results.poseLandmarks;
+
+            // Explicit human frame map structure rule sets
+            const connections = [
+                [11, 12], [11, 13], [13, 15], // Left shoulder, arm pathways
+                [12, 14], [14, 16],           // Right shoulder, arm pathways
+                [11, 23], [12, 24], [23, 24], // Torso frame connections
+                [23, 25], [25, 27],           // Left leg hips down to ankles
+                [24, 26], [26, 28]            // Right leg hips down to ankles
+            ];
+
+            // Render skeleton vector pathways onto the canvas matrix overlay sheet
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = '#00ff88'; // Neon Green bones
+            ctx.lineCap = 'round';
+
+            connections.forEach(([startIdx, endIdx]) => {
+                const ptA = landmarks[startIdx];
+                const ptB = landmarks[endIdx];
+
+                // Ensure minimal threshold parameter layout markers are visible on screen
+                if (ptA.visibility > 0.5 && ptB.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(ptA.x * canvas.width, ptA.y * canvas.height);
+                    ctx.lineTo(ptB.x * canvas.width, ptB.y * canvas.height);
+                    ctx.stroke();
                 }
-            }
-        });
+            });
 
-        window.addEventListener('mousemove', (e) => {
-            if (!selectedJoint) return;
-            const pos = getMouseCoordinates(e);
-            
-            // Constrain positions safely within screen borders
-            joints[selectedJoint].x = Math.max(10, Math.min(canvas.width - 10, pos.x));
-            joints[selectedJoint].y = Math.max(10, Math.min(canvas.height - 10, pos.y));
-            
-            updateScreen();
-        });
-
-        window.addEventListener('mouseup', () => {
-            selectedJoint = null;
-            updateScreen();
-        });
-
-        // Setup touch handling protocols for smart mobile devices
-        canvas.addEventListener('touchstart', (e) => {
-            if(e.touches.length > 0) {
-                const touch = e.touches[0];
-                const mouseEvent = new MouseEvent("mousedown", { clientX: touch.clientX, clientY: touch.clientY });
-                canvas.dispatchEvent(mouseEvent);
-            }
-        }, { passive: true });
-
-        window.addEventListener('touchmove', (e) => {
-            if(e.touches.length > 0) {
-                const touch = e.touches[0];
-                const mouseEvent = new MouseEvent("mousemove", { clientX: touch.clientX, clientY: touch.clientY });
-                window.dispatchEvent(mouseEvent);
-            }
-        }, { passive: true });
-
-        window.addEventListener('touchend', () => {
-            window.dispatchEvent(new MouseEvent("mouseup"));
-        });
-
-        // Initialize display frame state on site wake
-        updateScreen();
+            // Render matching white coordinates highlight node targets
+            ctx.fillStyle = '#ffffff'; // Solid white dots
+            landmarks.forEach((landmark) => {
+                if (landmark.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 6, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            });
+        }
     </script>
 </body>
 </html>
