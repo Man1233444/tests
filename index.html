@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fixed Skeleton Tracking</title>
+    <title>Instant Skeleton Layer Overlay</title>
     
-    <!-- Load stable, explicit versions of the TensorFlow AI engine -->
+    <!-- Load stable web processing AI engines -->
     <script src="https://jsdelivr.net"></script>
     <script src="https://jsdelivr.net"></script>
     <script src="https://jsdelivr.net"></script>
@@ -13,8 +13,13 @@
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
         .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 10px; overflow: hidden; border: 3px solid #333; }
-        video { display: none; } /* Hide raw feed to prevent double vision overlay glitches */
-        canvas { width: 640px; height: 480px; transform: scaleX(-1); } /* Mirror naturally */
+        
+        /* Mirror both elements horizontally so it behaves like a normal reflective mirror */
+        video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
+        
+        /* Make sure the skeleton lines draw on top of your video layer stream */
+        canvas { z-index: 10; pointer-events: none; }
+        
         button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin-top: 10px; }
         button:hover { background: #00cc6e; }
         #status { font-weight: bold; color: #ffcc00; margin-top: 10px; }
@@ -23,11 +28,13 @@
 <body>
 
     <h1>AI Body Skeleton Tracker</h1>
-    <button onclick="startTracker()">Start Tracker</button>
-    <div id="status">Click button to initialize webcam stream...</div>
+    <button onclick="startTracker()">Start Tracker Camera</button>
+    <div id="status">Click button to open camera feed...</div>
 
     <div class="box">
+        <!-- Raw hardware camera streaming layer -->
         <video id="webcam" autoplay playsinline muted></video>
+        <!-- Overlay clear window sheet where lines are drawn -->
         <canvas id="output"></canvas>
     </div>
 
@@ -38,7 +45,7 @@
         let ctx = canvas.getContext('2d');
 
         async function startTracker() {
-            document.getElementById('status').innerText = 'Initializing camera access pipeline...';
+            document.getElementById('status').innerText = 'Waking up camera hardware...';
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: 640, height: 480 },
@@ -46,78 +53,70 @@
                 });
                 video.srcObject = stream;
                 
-                document.getElementById('status').innerText = 'Camera connected. Booting AI core engine...';
+                document.getElementById('status').innerText = 'Camera awake. Initializing tracking math...';
                 await tf.setBackend('webgl');
                 
-                // Load explicit single-pose tracker to isolate data frames instantly
                 detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
                     modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
                 });
                 
                 canvas.width = 640;
                 canvas.height = 480;
-                document.getElementById('status').innerText = 'Tracking active! Stand back to see skeleton.';
+                document.getElementById('status').innerText = 'System Running! Stand back from the lens.';
                 
                 track();
             } catch (err) {
-                document.getElementById('status').innerText = 'Error: ' + err.message;
+                document.getElementById('status').innerText = 'Initialization Error: ' + err.message;
                 console.error(err);
             }
         }
 
         async function track() {
-            // Force paint the live camera data directly onto the matrix sheet
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Clear old skeletal tracks so they do not stack or smudge the viewing pane
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Run detection directly against the live video feed stream element
             if (detector && video.readyState >= 2) {
-                const poses = await detector.estimatePoses(canvas);
+                const poses = await detector.estimatePoses(video);
                 
                 if (poses && poses.length > 0) {
-                    drawSkeleton(poses[0].keypoints);
+                    drawSkeleton(poses.keypoints);
                 }
             }
             requestAnimationFrame(track);
         }
 
         function drawSkeleton(keypoints) {
-            // Explicit human frame map structure rules
             const connections = [
-                ['left_shoulder', 'right_shoulder'],
-                ['left_shoulder', 'left_elbow'],
-                ['left_elbow', 'left_wrist'],
-                ['right_shoulder', 'right_elbow'],
-                ['right_elbow', 'right_wrist'],
-                ['left_shoulder', 'left_hip'],
-                ['right_shoulder', 'right_hip'],
-                ['left_hip', 'right_hip'],
-                ['left_hip', 'left_knee'],
-                ['left_knee', 'left_ankle'],
-                ['right_hip', 'right_knee'],
-                ['right_knee', 'right_ankle']
+                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
+                ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
+                ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
+                ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
+                ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+                ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
             ];
 
-            // Render skeleton vector pathways
+            // Paint neon overlay vector frames 
             connections.forEach(([jointA, jointB]) => {
                 const pt1 = keypoints.find(k => k.name === jointA);
                 const pt2 = keypoints.find(k => k.name === jointB);
 
-                // Only draw if both joint nodes match confidence layout minimums
                 if (pt1 && pt2 && pt1.score > 0.3 && pt2.score > 0.3) {
                     ctx.beginPath();
                     ctx.moveTo(pt1.x, pt1.y);
                     ctx.lineTo(pt2.x, pt2.y);
-                    ctx.strokeStyle = '#00ff88'; // Neon green bones
+                    ctx.strokeStyle = '#00ff88'; // Neon bone color lines
                     ctx.lineWidth = 5;
                     ctx.stroke();
                 }
             });
 
-            // Draw joint dot markers
+            // Paint joint highlight nodes
             keypoints.forEach(kp => {
                 if (kp.score > 0.3) {
                     ctx.beginPath();
                     ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#ffffff'; // White joint targets
+                    ctx.fillStyle = '#ffffff'; // White coordinate node joints
                     ctx.fill();
                 }
             });
