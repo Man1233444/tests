@@ -5,146 +5,116 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Skeleton Body Tracker</title>
     
-    <!-- Load modern standalone MediaPipe Pose detection scripts from alternative fast servers -->
-    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
-    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <!-- Load stable p5.js and ml5.js animation frameworks -->
+    <script src="https://cloudflare.com"></script>
+    <script src="https://unpkg.com"></script>
 
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 12px; overflow: hidden; border: 3px solid #333; }
-        
-        /* Mirror elements horizontally so it behaves like a natural reflection mirror */
-        video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
-        
-        /* Set up standard layer order */
-        video { z-index: 1; display: block; }
-        canvas { z-index: 5; }
-        
+        #canvas-container { display: inline-block; margin-top: 20px; border: 3px solid #333; border-radius: 12px; overflow: hidden; background: #222; }
         .controls { margin-top: 15px; }
         button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin: 5px; }
         button:hover { background: #00cc6e; }
-        button.toggle-btn { background: #333; color: white; border: 2px solid #555; }
-        button.toggle-btn:hover { background: #444; }
         #status { font-weight: bold; color: #ffcc00; margin-top: 10px; font-size: 1.1rem; }
     </style>
 </head>
 <body>
 
     <h1>AI Body Skeleton Tracker</h1>
-    <div id="status">Click "Start Tracker" to launch the camera...</div>
+    <div id="status">Loading tracking engine... Please wait.</div>
 
     <div class="controls">
-        <button onclick="startTracker()">Start Tracker</button>
-        <button class="toggle-btn" onclick="toggleCameraView()">Show/Hide Camera View</button>
+        <button onclick="toggleCameraView()">Show/Hide Camera View</button>
     </div>
 
-    <div class="box">
-        <!-- Background Webcam Video Stream Layer -->
-        <video id="webcam" playsinline muted></video>
-        <!-- Foreground Neon Skeleton Tracking Layer -->
-        <canvas id="output"></canvas>
-    </div>
+    <!-- The container where your tracking screen will appear -->
+    <div id="canvas-container"></div>
 
     <script>
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('output');
-        const ctx = canvas.getContext('2d');
-        
-        let poseEngine;
-        let activeCamera;
-        let isCameraVisible = true;
+        let video;
+        let bodyPose;
+        let poses = [];
+        let showCamera = true;
 
-        function toggleCameraView() {
-            isCameraVisible = !isCameraVisible;
-            video.style.display = isCameraVisible ? 'block' : 'none';
+        function preload() {
+            // Load the stable, instant-start tracking engine
+            bodyPose = ml5.bodyPose();
         }
 
-        async function startTracker() {
-            document.getElementById('status').innerText = 'Waking up camera and setting configuration rules...';
-            
-            // 1. Initialize the ultra-stable alternative MediaPipe Pose constructor engine
-            poseEngine = new Pose({
-                locateFile: (file) => `https://jsdelivr.net{file}`
-            });
+        function setup() {
+            // Create the matching viewing window canvas
+            let canvas = createCanvas(640, 480);
+            canvas.parent('canvas-container');
 
-            poseEngine.setOptions({
-                modelComplexity: 1,
-                smoothLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+            // Turn on the webcam hardware instantly
+            video = createCapture(VIDEO);
+            video.size(640, 480);
+            video.hide(); // Hide extra layout layers
 
-            // 2. Direct data pipelines straight to our custom canvas painting routine
-            poseEngine.onResults(onPoseResults);
-
-            // 3. Connect hardware streams directly via MediaPipe's failproof native camera system
-            activeCamera = new Camera(video, {
-                onFrame: async () => {
-                    await poseEngine.send({ image: video });
-                },
-                width: 640,
-                height: 480
-            });
-
-            canvas.width = 640;
-            canvas.height = 480;
-
-            document.getElementById('status').innerText = 'Requesting camera system permission...';
-            await activeCamera.start();
-            document.getElementById('status').innerText = 'Tracking active! Stand fully back into frame.';
+            // Start analyzing the body structure positions automatically
+            bodyPose.detectStart(video, gotPoses);
         }
 
-        function onPoseResults(results) {
-            // Wipe canvas frame dry so lines do not smudge or stack over time
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        function draw() {
+            // Mirror coordinates horizontally so it behaves like a normal reflective mirror
+            translate(width, 0);
+            scale(-1, 1);
 
-            // If the camera view button is turned OFF, paint a solid background instead of video frames
-            if (!isCameraVisible) {
-                ctx.fillStyle = '#222';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (showCamera) {
+                // Paint the live camera view onto the background canvas sheet
+                image(video, 0, 0, width, height);
+            } else {
+                // Clear background screen to solid grey if camera is toggled off
+                background(34);
             }
 
-            // Return early if no human frame geometry is identified inside the pixels
-            if (!results.poseLandmarks) return;
+            // Draw the skeleton lines and white joint points on top
+            if (poses.length > 0) {
+                document.getElementById('status').innerText = 'System Live! Stand back from the lens.';
+                drawSkeletonLines();
+                drawJointDots();
+            }
+        }
 
-            const landmarks = results.poseLandmarks;
+        // Save fresh tracking information as you move around
+        function gotPoses(results) {
+            poses = results;
+            if (poses.length > 0) {
+                document.getElementById('status').innerText = 'Body Detected!';
+            }
+        }
 
-            // Explicit human frame map structure rule sets
-            const connections = [
-                [11, 12], [11, 13], [13, 15], // Left shoulder, arm pathways
-                [12, 14], [14, 16],           // Right shoulder, arm pathways
-                [11, 23], [12, 24], [23, 24], // Torso frame connections
-                [23, 25], [25, 27],           // Left leg hips down to ankles
-                [24, 26], [26, 28]            // Right leg hips down to ankles
-            ];
+        // Turn the camera layer visibility on or off when clicking the button
+        function toggleCameraView() {
+            showCamera = !showCamera;
+        }
 
-            // Render skeleton vector pathways onto the canvas matrix overlay sheet
-            ctx.lineWidth = 5;
-            ctx.strokeStyle = '#00ff88'; // Neon Green bones
-            ctx.lineCap = 'round';
+        function drawSkeletonLines() {
+            stroke(0, 255, 136); // Neon Green bones
+            strokeWeight(5);
 
-            connections.forEach(([startIdx, endIdx]) => {
-                const ptA = landmarks[startIdx];
-                const ptB = landmarks[endIdx];
+            // Fetch the connecting bones list automatically built into the engine
+            let skeleton = bodyPose.getSkeleton(poses);
 
-                // Ensure minimal threshold parameter layout markers are visible on screen
-                if (ptA.visibility > 0.5 && ptB.visibility > 0.5) {
-                    ctx.beginPath();
-                    ctx.moveTo(ptA.x * canvas.width, ptA.y * canvas.height);
-                    ctx.lineTo(ptB.x * canvas.width, ptB.y * canvas.height);
-                    ctx.stroke();
+            for (let i = 0; i < skeleton.length; i++) {
+                let ptA = skeleton[i];
+                let ptB = skeleton[i];
+                line(ptA.x, ptA.y, ptB.x, ptB.y);
+            }
+        }
+
+        function drawJointDots() {
+            fill(255, 255, 255); // Solid white joints
+            noStroke();
+            
+            let keypoints = poses.keypoints;
+            for (let i = 0; i < keypoints.length; i++) {
+                let kp = keypoints[i];
+                // Only paint tracking dots if the connection layout confidence is high enough
+                if (kp.confidence > 0.2) {
+                    circle(kp.x, kp.y, 10);
                 }
-            });
-
-            // Render matching white coordinates highlight node targets
-            ctx.fillStyle = '#ffffff'; // Solid white dots
-            landmarks.forEach((landmark) => {
-                if (landmark.visibility > 0.5) {
-                    ctx.beginPath();
-                    ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 6, 0, 2 * Math.PI);
-                    ctx.fill();
-                }
-            });
+            }
         }
     </script>
 </body>
