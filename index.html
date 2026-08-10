@@ -3,93 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Body Tracker</title>
-    <!-- Chart.js library for rendering progress graphs -->
+    <title>AI Body Skeleton Tracker</title>
+    
+    <!-- Load TensorFlow.js and MediaPipe Pose models from CDN -->
     <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f5f6; padding: 20px; max-width: 600px; margin: auto; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        h1, h2 { color: #333; margin-top: 0; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
-        button { background: #24292e; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; width: 100%; font-size: 16px; }
-        button:hover { background: #1f2327; }
+        body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
+        .container { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 8px; overflow: hidden; }
+        video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; }
+        canvas { z-index: 10; }
+        #status { font-weight: bold; color: #00ff88; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h1>Body Metrics Tracker</h1>
-        <div class="form-group">
-            <label for="weight">Weight (lbs/kg):</label>
-            <input type="number" id="weight" step="0.1" placeholder="e.g. 175.4">
-        </div>
-        <div class="form-group">
-            <label for="bodyfat">Body Fat % (Optional):</label>
-            <input type="number" id="bodyfat" step="0.1" placeholder="e.g. 15.2">
-        </div>
-        <button onclick="logData()">Log Entry</button>
-    </div>
+    <h1>AI Body Skeleton Tracker</h1>
+    <div id="status">Loading machine learning models... Please wait.</div>
 
-    <div class="card">
-        <h2>Progress Trend</h2>
-        <canvas id="progressChart"></canvas>
+    <div class="container">
+        <!-- Webcam input element (hidden visually but active for data) -->
+        <video id="webcam" autoplay playsinline muted style="transform: scaleX(-1);"></video>
+        <!-- Overlay canvas where the skeleton is drawn -->
+        <canvas id="output" style="transform: scaleX(-1);"></canvas>
     </div>
 
     <script>
-        let trackerData = JSON.parse(localStorage.getItem('bodyTrackerData')) || [];
-        let myChart;
+        let detector;
+        let video = document.getElementById('webcam');
+        let canvas = document.getElementById('output');
+        let ctx = canvas.getContext('2d');
 
-        function initChart() {
-            const ctx = document.getElementById('progressChart').getContext('2d');
-            // Sort data by date before displaying
-            trackerData.sort((a, b) => new Date(a.date) - new Date(b.date));
-            
-            const labels = trackerData.map(d => d.date);
-            const weights = trackerData.map(d => d.weight);
+        // Main entry point to launch webcam and AI tracking
+        async function main() {
+            try {
+                // Initialize the MediaPipe Pose detector
+                const model = poseDetection.SupportedModels.BlazePose;
+                detector = await poseDetection.createDetector(model, {
+                    runtime: 'mediapipe',
+                    solutionPath: 'https://jsdelivr.net'
+                });
+                
+                document.getElementById('status').innerText = 'Model Loaded! Requesting webcam access...';
+                await setupCamera();
+                
+                document.getElementById('status').innerText = 'Tracking active! Stand back so the camera sees your body.';
+                
+                // Match visual display resolutions
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                trackBody();
+            } catch (err) {
+                document.getElementById('status').innerText = 'Error: ' + err.message;
+                console.error(err);
+            }
+        }
 
-            if(myChart) { myChart.destroy(); }
-
-            myChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Weight Trend',
-                        data: weights,
-                        borderColor: '#24292e',
-                        backgroundColor: 'rgba(36, 41, 46, 0.1)',
-                        tension: 0.2,
-                        fill: true
-                    }]
-                },
-                options: { scales: { y: { beginAtZero: false } } }
+        // Connect the user's webcam hardware to the video tag
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 },
+                audio: false
+            });
+            video.srcObject = stream;
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => { resolve(video); };
             });
         }
 
-        function logData() {
-            const weightInput = document.getElementById('weight').value;
-            const fatInput = document.getElementById('bodyfat').value;
-            const today = new Date().toLocaleDateString();
-
-            if (!weightInput) { alert('Please enter a weight value.'); return; }
-
-            trackerData.push({
-                date: today,
-                weight: parseFloat(weightInput),
-                fat: fatInput ? parseFloat(fatInput) : null
-            });
-
-            localStorage.setItem('bodyTrackerData', JSON.stringify(trackerData));
-            initChart();
+        // Recursive loop that tracks positions frame by frame
+        async function trackBody() {
+            const poses = await detector.estimatePoses(video);
             
-            document.getElementById('weight').value = '';
-            document.getElementById('bodyfat').value = '';
+            // Clear previous canvas frame
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (poses.length > 0) {
+                const keypoints = poses[0].keypoints;
+                drawSkeleton(keypoints);
+            }
+
+            // Continuously request the next framework refresh
+            requestAnimationFrame(trackBody);
         }
 
-        // Load chart on page open
-        window.onload = initChart;
+        // Renders visual joints and connecting lines on screen
+        function drawSkeleton(keypoints) {
+            // Draw joint dots
+            keypoints.forEach(keypoint => {
+                if (keypoint.score > 0.5) { // Only draw if confident
+                    ctx.beginPath();
+                    ctx.arc(keypoint.x, keypoint.y, 6, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#00ff88';
+                    ctx.fill();
+                }
+            });
+
+            // Connect lines between major matching joint pairs
+            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
+            connections.forEach(([i, j]) => {
+                const kp1 = keypoints[i];
+                const kp2 = keypoints[j];
+                
+                if (kp1.score > 0.5 && kp2.score > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(kp1.x, kp1.y);
+                    ctx.lineTo(kp2.x, kp2.y);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        // Run setup routine on page load
+        window.onload = main;
     </script>
 </body>
 </html>
