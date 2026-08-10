@@ -3,148 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Interactive Camera Tracker</title>
+    <title>Live AR Body Skeleton Tracker</title>
+    
+    <!-- Load Google's Official High-Speed MediaPipe Vision Engine -->
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+
     <style>
-        body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 12px; overflow: hidden; border: 3px solid #333; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0c; color: white; text-align: center; margin: 0; padding: 20px; }
+        h1 { font-size: 1.8rem; margin-bottom: 5px; color: #f3f4f6; }
+        #status { font-weight: bold; color: #00ff88; margin-bottom: 15px; font-size: 1rem; min-height: 24px; }
         
-        /* Mirror elements horizontally so it behaves like a normal reflective mirror */
+        .box { position: relative; width: 640px; height: 480px; margin: 10px auto; background: #111; border-radius: 16px; overflow: hidden; border: 4px solid #222; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        
+        /* Mirror elements horizontally so left is left and right is right */
         video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
+        video { z-index: 1; object-fit: cover; display: block; }
+        canvas { z-index: 2; pointer-events: none; }
         
-        /* Stack the interactive overlay directly above the video channel */
-        video { z-index: 1; display: block; object-fit: cover; }
-        canvas { z-index: 5; pointer-events: auto; }
-        
-        .controls { margin-top: 15px; }
-        button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin: 5px; }
-        button:hover { background: #00cc6e; }
-        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.1rem; }
+        .controls { margin-bottom: 15px; }
+        button { background: #00ff88; color: #0a0a0c; font-weight: bold; border: none; padding: 14px 28px; font-size: 1rem; border-radius: 8px; cursor: pointer; margin: 5px; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(0,255,136,0.2); }
+        button:hover { background: #00e67a; transform: translateY(-1px); }
+        button.toggle-btn { background: #222; color: #fff; border: 2px solid #444; box-shadow: none; }
+        button.toggle-btn:hover { background: #333; border-color: #666; }
     </style>
 </head>
 <body>
 
-    <h1>Interactive Video Skeleton Tracker</h1>
-    <div id="status">Ready! Click "Turn On Camera" to overlay the skeleton tracker.</div>
+    <h1>AR Body Skeleton Tracker</h1>
+    <div id="status">Click "Start System" to initialize your webcam...</div>
 
     <div class="controls">
-        <button onclick="startWebcam()">Turn On Camera</button>
-        <button onclick="toggleVideoFeed()" style="background:#444; color:white;">Show/Hide Camera View</button>
+        <button onclick="initTracker()">Start System</button>
+        <button class="toggle-btn" onclick="toggleCameraView()">Show/Hide Camera View</button>
     </div>
 
     <div class="box">
-        <!-- Live hardware streaming window feed layout node -->
+        <!-- Raw video hardware layer -->
         <video id="webcam" autoplay playsinline muted></video>
-        <!-- Overlay interaction template map drawing lines -->
-        <canvas id="trackerCanvas"></canvas>
+        <!-- Overlay layer to draw vector skeleton sticks -->
+        <canvas id="output"></canvas>
     </div>
 
     <script>
         const video = document.getElementById('webcam');
-        const canvas = document.getElementById('trackerCanvas');
+        const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
-
-        canvas.width = 640;
-        canvas.height = 480;
-
-        let trackingPulse = 0;
+        
+        let poseLandmarker;
         let showVideo = true;
+        let isRunning = false;
 
-        // Base structural coordinates mapping out joint coordinates
-        let joints = {
-            head: { x: 320, y: 100 }, neck: { x: 320, y: 150 },
-            leftShoulder: { x: 250, y: 170 }, rightShoulder: { x: 390, y: 170 },
-            leftElbow: { x: 200, y: 240 }, rightElbow: { x: 440, y: 240 },
-            leftWrist: { x: 170, y: 310 }, rightWrist: { x: 470, y: 310 },
-            spine: { x: 320, y: 250 },
-            leftHip: { x: 270, y: 310 }, rightHip: { x: 370, y: 310 },
-            leftKnee: { x: 260, y: 390 }, rightKnee: { x: 380, y: 390 },
-            leftAnkle: { x: 250, y: 460 }, rightAnkle: { x: 390, y: 460 }
-        };
-
-        const bones = [
-            ['head', 'neck'], ['neck', 'leftShoulder'], ['neck', 'rightShoulder'],
-            ['leftShoulder', 'leftElbow'], ['leftElbow', 'leftWrist'],
-            ['rightShoulder', 'rightElbow'], ['rightElbow', 'rightWrist'],
-            ['neck', 'spine'], ['spine', 'leftHip'], ['spine', 'rightHip'],
-            ['leftHip', 'leftKnee'], ['leftKnee', 'leftAnkle'],
-            ['right_hip', 'rightKnee'], ['rightKnee', 'rightAnkle']
-        ];
-
-        // Access hardware directly without invoking processing frameworks
-        async function startWebcam() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
-                video.srcObject = stream;
-                document.getElementById('status').innerText = "System Live! Move your mouse across the canvas to interact with the tracking frame.";
-            } catch (err) {
-                document.getElementById('status').innerText = "Camera Access Error: " + err.message;
-            }
-        }
-
-        function toggleVideoFeed() {
+        // Toggles video element styling visibility instantly
+        function toggleCameraView() {
             showVideo = !showVideo;
             video.style.display = showVideo ? 'block' : 'none';
         }
 
-        // Generate fluid, lifelike movements syncing automatically with your coordinates
-        function loopAnimateTracker() {
+        async function initTracker() {
+            if (isRunning) return;
+            document.getElementById('status').innerText = 'Initializing Google MediaPipe Vision Engine...';
+            
+            try {
+                // Initialize the WASM asset pipeline bundle
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://jsdelivr.net"
+                );
+
+                // Create landmarker object with GPU-accelerated video tracking configuration rules
+                poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://googleapis.com",
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    outputSegmentationMasks: false
+                });
+
+                document.getElementById('status').innerText = 'Requesting hardware device camera permissions...';
+                
+                // Boot live video track stream elements
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 },
+                    audio: false
+                });
+                video.srcObject = stream;
+                
+                video.addEventListener('loadeddata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    isRunning = true;
+                    document.getElementById('status').innerText = 'System fully live! Step back into frame.';
+                    renderLoop();
+                });
+
+            } catch (err) {
+                document.getElementById('status').innerText = 'System Blocked: ' + err.message;
+                console.error(err);
+            }
+        }
+
+        function renderLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            trackingPulse += 0.04;
 
-            // Mathematical calculation logic simulating natural joints sway
-            let waveX = Math.sin(trackingPulse) * 25;
-            let waveY = Math.cos(trackingPulse) * 12;
+            // Paint dark layout canvas fill background layer if camera visibility toggles off
+            if (!showVideo) {
+                ctx.fillStyle = '#0f0f12';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
 
-            // Re-map active positions on screen matrix sheets dynamically
-            joints.head.x = 320 + waveX;
-            joints.leftWrist.y = 310 + (waveY * 2);
-            joints.rightWrist.y = 310 - (waveY * 2);
-            joints.leftKnee.x = 260 + (waveX * 0.4);
-            joints.rightKnee.x = 380 + (waveX * 0.4);
+            if (video.readyState >= 2 && poseLandmarker) {
+                // Track current timestamp frame changes continuously
+                let timestamp = performance.now();
+                const result = poseLandmarker.detectForVideo(video, timestamp);
 
-            // Draw line pathways mapping out human framework geometry
-            ctx.lineWidth = 6;
-            ctx.strokeStyle = '#00ff88'; // Vibrant Neon Green
+                if (result.poseLandmarks && result.poseLandmarks.length > 0) {
+                    drawSkeleton(result.poseLandmarks[0]);
+                }
+            }
+            requestAnimationFrame(renderLoop);
+        }
+
+        function drawSkeleton(landmarks) {
+            // Human anatomy skeleton bone alignment configurations map indices
+            const connections = [
+                [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], // Shoulders and arms
+                [11, 23], [12, 24], [23, 24],                     // Torso core frame
+                [23, 25], [25, 27], [24, 26], [26, 28]              // Legs down to ankles
+            ];
+
+            // Render skeleton vector pathways
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = '#00ff88'; // Vibrant neon tracking lines
             ctx.lineCap = 'round';
 
-            bones.forEach(([s, e]) => {
-                const nodeA = joints[s];
-                const nodeB = joints[e];
-                if(nodeA && nodeB) {
+            connections.forEach(([start, end]) => {
+                const ptA = landmarks[start];
+                const ptB = landmarks[end];
+
+                // Render vector lines if landmark scores pass clarity evaluation rules
+                if (ptA && ptB && ptA.presence > 0.5 && ptB.presence > 0.5) {
                     ctx.beginPath();
-                    ctx.moveTo(nodeA.x, nodeA.y);
-                    ctx.lineTo(nodeB.x, nodeB.y);
+                    ctx.moveTo(ptA.x * canvas.width, ptA.y * canvas.height);
+                    ctx.lineTo(ptB.x * canvas.width, ptB.y * canvas.height);
                     ctx.stroke();
                 }
             });
 
-            // Draw joint highlights
-            for (let key in joints) {
-                ctx.beginPath();
-                ctx.arc(joints[key].x, joints[key].y, 6, 0, 2 * Math.PI);
-                ctx.fillStyle = '#ffffff'; // White joint center indicators
-                ctx.fill();
-            }
-
-            requestAnimationFrame(loopAnimateTracker);
+            // Render individual white joint overlay dots
+            ctx.fillStyle = '#ffffff';
+            landmarks.forEach((kp, idx) => {
+                // Restrict face tracking node clutter, focus exclusively on body tracking elements
+                if (idx >= 11 && kp.presence > 0.5) {
+                    ctx.beginPath();
+                    ctx.arc(kp.x * canvas.width, kp.y * canvas.height, 6, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            });
         }
-
-        // Alter coordinates using mouse cursor mapping options
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            // Transform matrix configurations adjusting for mirrored view layouts
-            const currentX = (e.clientX - rect.left) * (canvas.width / rect.width);
-            const currentY = (e.clientY - rect.top) * (canvas.height / rect.height);
-            
-            // Link your spine and shoulders to follow your pointer across the canvas frame
-            joints.spine.x = currentX;
-            joints.neck.x = currentX;
-            joints.leftShoulder.x = currentX - 70;
-            joints.rightShoulder.x = currentX + 70;
-        });
-
-        // Initialize display loop instantly on startup
-        loopAnimateTracker();
     </script>
 </body>
 </html>
