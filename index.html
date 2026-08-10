@@ -3,10 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live AR Body Skeleton Tracker</title>
-    
-    <!-- Load Google's Official High-Speed MediaPipe Vision Engine -->
-    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <title>AR Body Skeleton Tracker</title>
 
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0c; color: white; text-align: center; margin: 0; padding: 20px; }
@@ -15,7 +12,7 @@
         
         .box { position: relative; width: 640px; height: 480px; margin: 10px auto; background: #111; border-radius: 16px; overflow: hidden; border: 4px solid #222; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
         
-        /* Mirror elements horizontally so left is left and right is right */
+        /* Mirror elements horizontally so your movement acts like a natural reflection */
         video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
         video { z-index: 1; object-fit: cover; display: block; }
         canvas { z-index: 2; pointer-events: none; }
@@ -33,18 +30,20 @@
     <div id="status">Click "Start System" to initialize your webcam...</div>
 
     <div class="controls">
-        <button onclick="initTracker()">Start System</button>
-        <button class="toggle-btn" onclick="toggleCameraView()">Show/Hide Camera View</button>
+        <button id="start-btn">Start System</button>
+        <button class="toggle-btn" id="toggle-btn">Show/Hide Camera View</button>
     </div>
 
     <div class="box">
-        <!-- Raw video hardware layer -->
         <video id="webcam" autoplay playsinline muted></video>
-        <!-- Overlay layer to draw vector skeleton sticks -->
         <canvas id="output"></canvas>
     </div>
 
-    <script>
+    <!-- Script tag configured as a module to fix the FilesetResolver error -->
+    <script type="module">
+        // Import components explicitly from the module bundle package
+        import { PoseLandmarker, FilesetResolver } from "https://jsdelivr.net";
+
         const video = document.getElementById('webcam');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
@@ -53,35 +52,34 @@
         let showVideo = true;
         let isRunning = false;
 
-        // Toggles video element styling visibility instantly
-        function toggleCameraView() {
+        // Attach interface click events directly within the module scope
+        document.getElementById('toggle-btn').addEventListener('click', () => {
             showVideo = !showVideo;
             video.style.display = showVideo ? 'block' : 'none';
-        }
+        });
 
-        async function initTracker() {
+        document.getElementById('start-btn').addEventListener('click', async () => {
             if (isRunning) return;
-            document.getElementById('status').innerText = 'Initializing Google MediaPipe Vision Engine...';
+            document.getElementById('status').innerText = 'Initializing MediaPipe Vision Core...';
             
             try {
-                // Initialize the WASM asset pipeline bundle
+                // Initialize the background file systems safely
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://jsdelivr.net"
                 );
 
-                // Create landmarker object with GPU-accelerated video tracking configuration rules
+                // Compile tracking rules using local processing assets
                 poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: "https://googleapis.com",
                         delegate: "GPU"
                     },
-                    runningMode: "VIDEO",
-                    outputSegmentationMasks: false
+                    runningMode: "VIDEO"
                 });
 
-                document.getElementById('status').innerText = 'Requesting hardware device camera permissions...';
+                document.getElementById('status').innerText = 'Requesting camera device authorization...';
                 
-                // Boot live video track stream elements
+                // Prompt user for live webcam stream track allocations
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: 640, height: 480 },
                     audio: false
@@ -100,19 +98,18 @@
                 document.getElementById('status').innerText = 'System Blocked: ' + err.message;
                 console.error(err);
             }
-        }
+        });
 
         function renderLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Paint dark layout canvas fill background layer if camera visibility toggles off
+            // Paint an elegant slate-grey sheet if the video view toggles off
             if (!showVideo) {
                 ctx.fillStyle = '#0f0f12';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
 
             if (video.readyState >= 2 && poseLandmarker) {
-                // Track current timestamp frame changes continuously
                 let timestamp = performance.now();
                 const result = poseLandmarker.detectForVideo(video, timestamp);
 
@@ -124,24 +121,23 @@
         }
 
         function drawSkeleton(landmarks) {
-            // Human anatomy skeleton bone alignment configurations map indices
+            // Mapping connection arrays for full-body tracking linkages
             const connections = [
                 [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], // Shoulders and arms
                 [11, 23], [12, 24], [23, 24],                     // Torso core frame
                 [23, 25], [25, 27], [24, 26], [26, 28]              // Legs down to ankles
             ];
 
-            // Render skeleton vector pathways
+            // Render skeleton bone pathways
             ctx.lineWidth = 5;
-            ctx.strokeStyle = '#00ff88'; // Vibrant neon tracking lines
+            ctx.strokeStyle = '#00ff88'; // Vibrant neon green
             ctx.lineCap = 'round';
 
             connections.forEach(([start, end]) => {
                 const ptA = landmarks[start];
                 const ptB = landmarks[end];
 
-                // Render vector lines if landmark scores pass clarity evaluation rules
-                if (ptA && ptB && ptA.presence > 0.5 && ptB.presence > 0.5) {
+                if (ptA && ptB && ptA.visibility > 0.5 && ptB.visibility > 0.5) {
                     ctx.beginPath();
                     ctx.moveTo(ptA.x * canvas.width, ptA.y * canvas.height);
                     ctx.lineTo(ptB.x * canvas.width, ptB.y * canvas.height);
@@ -149,11 +145,11 @@
                 }
             });
 
-            // Render individual white joint overlay dots
-            ctx.fillStyle = '#ffffff';
+            // Render joint dots over the skeleton paths
+            ctx.fillStyle = '#ffffff'; // Solid white nodes
             landmarks.forEach((kp, idx) => {
-                // Restrict face tracking node clutter, focus exclusively on body tracking elements
-                if (idx >= 11 && kp.presence > 0.5) {
+                // Focus tracking dots on body paths, skipping extra face clutter
+                if (idx >= 11 && kp.visibility > 0.5) {
                     ctx.beginPath();
                     ctx.arc(kp.x * canvas.width, kp.y * canvas.height, 6, 0, 2 * Math.PI);
                     ctx.fill();
