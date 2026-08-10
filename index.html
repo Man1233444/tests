@@ -3,128 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fixed Skeleton Tracker</title>
+    <title>Instant AI Skeleton Tracker</title>
     
-    <!-- Load required processing libraries in correct order -->
-    <script src="https://jsdelivr.net"></script>
-    <script src="https://jsdelivr.net"></script>
-    <script src="https://jsdelivr.net"></script>
+    <!-- Load highly reliable p5.js and ml5.js animation frameworks -->
+    <script src="https://cloudflare.com"></script>
+    <script src="https://unpkg.com"></script>
 
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        .container { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 8px; border: 3px solid #333; }
-        /* Keep video hidden so it doesn't block the visual canvas layers */
-        video { display: none; }
-        canvas { width: 640px; height: 480px; transform: scaleX(-1); border-radius: 5px; }
-        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.1rem; }
+        #canvas-holder { display: inline-block; margin-top: 20px; border: 4px solid #333; border-radius: 12px; overflow: hidden; background: #222; }
+        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.2rem; }
     </style>
 </head>
 <body>
 
-    <h1>AI Body Skeleton Tracker</h1>
-    <div id="status">Starting camera feed initialization...</div>
-
-    <div class="container">
-        <video id="webcam" autoplay playsinline muted></video>
-        <canvas id="output"></canvas>
-    </div>
+    <h1>Instant AI Skeleton Tracker</h1>
+    <div id="status">Loading stable body tracker engine...</div>
+    
+    <!-- Container where the automated video system injects itself -->
+    <div id="canvas-holder"></div>
 
     <script>
-        let detector;
-        let video = document.getElementById('webcam');
-        let canvas = document.getElementById('output');
-        let ctx = canvas.getContext('2d');
+        let video;
+        let bodyPose;
+        let poses = [];
 
-        async function main() {
-            try {
-                document.getElementById('status').innerText = 'Initializing WebGL Engine...';
-                await tf.setBackend('webgl');
+        // Runs first to pull up dependencies
+        function preload() {
+            // Load the stable, quick-response MoveNet lightning model
+            bodyPose = ml5.bodyPose('MoveNet', { modelType: 'LIGHTNING' });
+        }
+
+        // Sets up layout screen variables automatically
+        function setup() {
+            // Create a clean canvas display and nest it in our custom HTML container
+            let canvas = createCanvas(640, 480);
+            canvas.parent('canvas-holder');
+
+            // Hook up webcam hardware
+            video = createCapture(VIDEO);
+            video.size(640, 480);
+            video.hide(); // Hide raw input; we will manually mirror and paint it
+
+            // Fire tracking routine continuously on the feed
+            bodyPose.detectStart(video, gotPoses);
+        }
+
+        // Visual loop executing at 60 frames per second
+        function draw() {
+            // Step 1: Flip coordinates horizontally to mirror your movement naturally
+            translate(width, 0);
+            scale(-1, 1);
+
+            // Step 2: Draw the webcam image frame onto the background canvas matrix
+            image(video, 0, 0, width, height);
+
+            // Step 3: Check if a physical human frame has been verified by the AI
+            if (poses.length > 0) {
+                let currentPose = poses[0];
+                document.getElementById('status').innerText = 'System Running! Step back into frame.';
                 
-                document.getElementById('status').innerText = 'Downloading tracking model framework...';
-                detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-                    modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
-                });
-                
-                document.getElementById('status').innerText = 'Requesting camera system permissions...';
-                await setupCamera();
-                
-                document.getElementById('status').innerText = 'Tracking fully active! Stand back.';
-                
-                canvas.width = 640;
-                canvas.height = 480;
-                
-                trackLoop();
-            } catch (err) {
-                document.getElementById('status').innerText = 'Error detected: ' + err.message;
-                console.error(err);
+                drawSkeletonBones(currentPose);
+                drawJointDots(currentPose);
             }
         }
 
-        async function setupCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 },
-                audio: false
-            });
-            video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => { resolve(video); };
-            });
+        // Realtime data callback pipeline
+        function gotPoses(results) {
+            poses = results;
+            if(poses.length > 0) {
+                 document.getElementById('status').innerText = 'Body Detected!';
+            }
         }
 
-        async function trackLoop() {
-            // Step 1: Force print the raw video frames onto the canvas display first
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Connect the skeleton lines between joint structures
+        function drawSkeletonBones(pose) {
+            stroke(0, 255, 136); // Neon Green lines
+            strokeWeight(5);
 
-            // Step 2: Extract positional data arrays directly out of the generated canvas pixels
-            if (detector) {
-                const poses = await detector.estimatePoses(canvas);
-                if (poses && poses.length > 0) {
-                    drawBones(poses[0].keypoints);
+            // Pre-built skeleton connections mapping list inside ml5
+            if (bodyPose.skeleton) {
+                let skeleton = bodyPose.getSkeleton(pose);
+                for (let i = 0; i < skeleton.length; i++) {
+                    let partA = skeleton[i][0];
+                    let partB = skeleton[i][1];
+                    // Render vectors connecting coordinate anchors
+                    line(partA.x, partA.y, partB.x, partB.y);
                 }
             }
-
-            // Step 3: Loop infinitely
-            requestAnimationFrame(trackLoop);
         }
 
-        function drawBones(keypoints) {
-            // Visual coordinate matching configurations for joints
-            const lines = [
-                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
-                ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
-                ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
-                ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
-                ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
-                ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
-            ];
-
-            // Render skeleton vector strokes
-            lines.forEach(([startPoint, endPoint]) => {
-                const kp1 = keypoints.find(k => k.name === startPoint);
-                const kp2 = keypoints.find(k => k.name === endPoint);
-
-                if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
-                    ctx.beginPath();
-                    ctx.moveTo(kp1.x, kp1.y);
-                    ctx.lineTo(kp2.x, kp2.y);
-                    ctx.strokeStyle = '#00ff88'; // Neon green bones
-                    ctx.lineWidth = 5;
-                    ctx.stroke();
+        // Overlay bright points over the active bones
+        function drawJointDots(pose) {
+            fill(255, 255, 255); // Solid white centers
+            noStroke();
+            
+            for (let i = 0; i < pose.keypoints.length; i++) {
+                let kp = pose.keypoints[i];
+                // Only draw a tracking circle if the AI model threshold confidence is met
+                if (kp.confidence > 0.3) {
+                    circle(kp.x, kp.y, 12);
                 }
-            });
-
-            // Render joint targets
-            keypoints.forEach(kp => {
-                if (kp.score > 0.3) {
-                    ctx.beginPath();
-                    ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#ffffff'; // Bright white joints
-                    ctx.fill();
-                }
-            });
+            }
         }
-
-        window.onload = main;
     </script>
 </body>
 </html>
