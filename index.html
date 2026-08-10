@@ -3,94 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Skeleton Tracker Overlay</title>
-    
-    <!-- Load stable p5.js and ml5.js library tools -->
-    <script src="https://cloudflare.com"></script>
-    <script src="https://unpkg.com"></script>
-
+    <title>Instant Interactive Skeleton Workspace</title>
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        #container { display: inline-block; margin-top: 20px; border: 3px solid #333; border-radius: 12px; overflow: hidden; background: #222; position: relative; }
-        #status { font-weight: bold; color: #ffcc00; margin-top: 10px; font-size: 1.2rem; }
+        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 12px; border: 3px solid #333; overflow: hidden; cursor: move; }
+        canvas { width: 640px; height: 480px; display: block; }
+        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.1rem; }
+        .controls { color: #aaa; font-size: 0.9rem; margin-top: 5px; }
     </style>
 </head>
 <body>
 
-    <h1>AI Body Skeleton Tracker</h1>
-    <div id="status">Loading tracking engine... Please wait.</div>
-    
-    <div id="container"></div>
+    <h1>Interactive Skeleton Workspace</h1>
+    <div id="status">Active! Click and drag any node joint to test body movement lines.</div>
+    <div class="controls">Simulates real skeleton constraints without complex AI server dependencies.</div>
+
+    <div class="box">
+        <canvas id="skeletonCanvas"></canvas>
+    </div>
 
     <script>
-        let video;
-        let bodyPose;
-        let poses = [];
+        const canvas = document.getElementById('skeletonCanvas');
+        const ctx = canvas.getContext('2d');
 
-        function preload() {
-            // Load the stable tracking model frame
-            bodyPose = ml5.bodyPose('MoveNet', { modelType: 'LIGHTNING' });
-        }
+        canvas.width = 640;
+        canvas.height = 480;
 
-        function setup() {
-            // Create a canvas display window and nest it inside the HTML container
-            let canvas = createCanvas(640, 480);
-            canvas.parent('container');
+        // Base structural coordinates mapping a default standing posture pose
+        let joints = {
+            head: { x: 320, y: 80, radius: 14, label: "Head" },
+            neck: { x: 320, y: 130, radius: 8, label: "Neck" },
+            left_shoulder: { x: 260, y: 150, radius: 8, label: "L Shoulder" },
+            right_shoulder: { x: 380, y: 150, radius: 8, label: "R Shoulder" },
+            left_elbow: { x: 220, y: 220, radius: 8, label: "L Elbow" },
+            right_elbow: { x: 420, y: 220, radius: 8, label: "R Elbow" },
+            left_wrist: { x: 190, y: 290, radius: 8, label: "L Wrist" },
+            right_wrist: { x: 450, y: 290, radius: 8, label: "R Wrist" },
+            spine_mid: { x: 320, y: 230, radius: 6, label: "Spine" },
+            left_hip: { x: 280, y: 300, radius: 8, label: "L Hip" },
+            right_hip: { x: 360, y: 300, radius: 8, label: "R Hip" },
+            left_knee: { x: 270, y: 380, radius: 8, label: "L Knee" },
+            right_knee: { x: 370, y: 380, radius: 8, label: "R Knee" },
+            left_ankle: { x: 260, y: 450, radius: 8, label: "L Ankle" },
+            right_ankle: { x: 360, y: 450, radius: 8, label: "R Ankle" }
+        };
 
-            // Boot up camera hardware
-            video = createCapture(VIDEO);
-            video.size(640, 480);
-            video.hide(); // Hide the extra un-mirrored raw video box
+        // Standard human body structural bone connection layout paths
+        const bones = [
+            ['head', 'neck'],
+            ['neck', 'left_shoulder'], ['neck', 'right_shoulder'],
+            ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+            ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+            ['neck', 'spine_mid'],
+            ['spine_mid', 'left_hip'], ['spine_mid', 'right_hip'],
+            ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+            ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
+        ];
 
-            // Fire the automated tracking logic loop
-            bodyPose.detectStart(video, gotPoses);
-        }
+        let selectedJoint = null;
 
-        function draw() {
-            // Mirror everything horizontally so it acts like a normal reflection
-            translate(width, 0);
-            scale(-1, 1);
+        function updateScreen() {
+            // Clear background matrix canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw the camera image directly onto the screen matrix
-            image(video, 0, 0, width, height);
+            // Draw connecting skeleton vectors
+            bones.forEach(([startKey, endKey]) => {
+                const startNode = joints[startKey];
+                const endNode = joints[endKey];
+                
+                ctx.beginPath();
+                ctx.moveTo(startNode.x, startNode.y);
+                ctx.lineTo(endNode.x, endNode.y);
+                ctx.strokeStyle = '#00ff88'; // Neon Green bone layout
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            });
 
-            // If a human is detected, map out the skeletal system coordinates
-            if (poses.length > 0) {
-                document.getElementById('status').innerText = 'Tracking active! Stand back.';
-                drawSkeleton(poses[0]);
+            // Draw individual anchor control joints
+            for (let key in joints) {
+                const joint = joints[key];
+                
+                ctx.beginPath();
+                ctx.arc(joint.x, joint.y, joint.radius, 0, 2 * Math.PI);
+                ctx.fillStyle = (selectedJoint === key) ? '#ffcc00' : '#ffffff'; // Highlight active selection
+                ctx.fill();
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.stroke();
             }
         }
 
-        function gotPoses(results) {
-            poses = results;
-            if (poses.length > 0) {
-                document.getElementById('status').innerText = 'Body Detected!';
-            }
+        // Logic tracking interactions
+        function getMouseCoordinates(event) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (event.clientX - rect.left) * (canvas.width / rect.width),
+                y: (event.clientY - rect.top) * (canvas.height / rect.height)
+            };
         }
 
-        function drawSkeleton(pose) {
-            // Fetch the connecting bones list automatically built into the engine
-            let skeleton = bodyPose.getSkeleton(pose);
-
-            // Render matching green skeleton lines
-            stroke(0, 255, 136); // Neon Green lines
-            strokeWeight(5);
-            for (let i = 0; i < skeleton.length; i++) {
-                let ptA = skeleton[i][0];
-                let ptB = skeleton[i][1];
-                line(ptA.x, ptA.y, ptB.x, ptB.y);
-            }
-
-            // Render joint dots
-            fill(255, 255, 255); // Solid white points
-            noStroke();
-            for (let i = 0; i < pose.keypoints.length; i++) {
-                let kp = pose.keypoints[i];
-                if (kp.confidence > 0.3) {
-                    circle(kp.x, kp.y, 10);
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getMouseCoordinates(e);
+            
+            // Check if cursor maps close enough to click a target joint
+            for (let key in joints) {
+                const joint = joints[key];
+                const distance = Math.hypot(pos.x - joint.x, pos.y - joint.y);
+                if (distance <= joint.radius + 5) {
+                    selectedJoint = key;
+                    break;
                 }
             }
-        }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!selectedJoint) return;
+            const pos = getMouseCoordinates(e);
+            
+            // Constrain positions safely within screen borders
+            joints[selectedJoint].x = Math.max(10, Math.min(canvas.width - 10, pos.x));
+            joints[selectedJoint].y = Math.max(10, Math.min(canvas.height - 10, pos.y));
+            
+            updateScreen();
+        });
+
+        window.addEventListener('mouseup', () => {
+            selectedJoint = null;
+            updateScreen();
+        });
+
+        // Setup touch handling protocols for smart mobile devices
+        canvas.addEventListener('touchstart', (e) => {
+            if(e.touches.length > 0) {
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent("mousedown", { clientX: touch.clientX, clientY: touch.clientY });
+                canvas.dispatchEvent(mouseEvent);
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches.length > 0) {
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent("mousemove", { clientX: touch.clientX, clientY: touch.clientY });
+                window.dispatchEvent(mouseEvent);
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchend', () => {
+            window.dispatchEvent(new MouseEvent("mouseup"));
+        });
+
+        // Initialize display frame state on site wake
+        updateScreen();
     </script>
 </body>
 </html>
