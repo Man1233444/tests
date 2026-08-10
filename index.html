@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Skeleton Layer Overlay</title>
+    <title>AI Skeleton Tracker Overlay</title>
     
     <!-- Load stable web processing AI engines -->
     <script src="https://jsdelivr.net"></script>
@@ -14,10 +14,10 @@
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
         .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 10px; overflow: hidden; border: 3px solid #333; }
         
-        /* Mirror both elements horizontally so it behaves like a normal reflective mirror */
+        /* Mirror both layers horizontally to simulate a natural mirror view */
         video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); }
         
-        /* Make sure the skeleton lines draw on top of your video layer stream */
+        /* Force the transparent skeleton canvas layer directly over the video channel */
         canvas { z-index: 10; pointer-events: none; }
         
         button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin-top: 10px; }
@@ -32,9 +32,9 @@
     <div id="status">Click button to open camera feed...</div>
 
     <div class="box">
-        <!-- Raw hardware camera streaming layer -->
+        <!-- Live webcam video stream background tracking layer -->
         <video id="webcam" autoplay playsinline muted></video>
-        <!-- Overlay clear window sheet where lines are drawn -->
+        <!-- Canvas overlay layer explicitly drawing the skeletal frame geometry -->
         <canvas id="output"></canvas>
     </div>
 
@@ -72,21 +72,22 @@
         }
 
         async function track() {
-            // Clear old skeletal tracks so they do not stack or smudge the viewing pane
+            // Wipe canvas frame so skeletal lines from previous frames do not stick or smudge
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Run detection directly against the live video feed stream element
+            // Fetch live layout points from current camera frames
             if (detector && video.readyState >= 2) {
                 const poses = await detector.estimatePoses(video);
                 
                 if (poses && poses.length > 0) {
-                    drawSkeleton(poses.keypoints);
+                    drawSkeleton(poses[0].keypoints);
                 }
             }
             requestAnimationFrame(track);
         }
 
         function drawSkeleton(keypoints) {
+            // FIXED: Complete explicit skeletal mapping pathways for bone layout tracking
             const connections = [
                 ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
                 ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
@@ -96,27 +97,28 @@
                 ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
             ];
 
-            // Paint neon overlay vector frames 
+            // Render skeleton vector pathways
             connections.forEach(([jointA, jointB]) => {
                 const pt1 = keypoints.find(k => k.name === jointA);
                 const pt2 = keypoints.find(k => k.name === jointB);
 
+                // Check minimal confidence scoring layout parameter restrictions
                 if (pt1 && pt2 && pt1.score > 0.3 && pt2.score > 0.3) {
                     ctx.beginPath();
                     ctx.moveTo(pt1.x, pt1.y);
                     ctx.lineTo(pt2.x, pt2.y);
-                    ctx.strokeStyle = '#00ff88'; // Neon bone color lines
+                    ctx.strokeStyle = '#00ff88'; // Neon Green lines
                     ctx.lineWidth = 5;
                     ctx.stroke();
                 }
             });
 
-            // Paint joint highlight nodes
+            // Render joint targets
             keypoints.forEach(kp => {
                 if (kp.score > 0.3) {
                     ctx.beginPath();
                     ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#ffffff'; // White coordinate node joints
+                    ctx.fillStyle = '#ffffff'; // White joint nodes
                     ctx.fill();
                 }
             });
