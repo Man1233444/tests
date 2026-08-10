@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Body Skeleton Tracker</title>
+    <title>Fast AI Skeleton Tracker</title>
     
-    <!-- Load TensorFlow.js and MediaPipe Pose models from CDN -->
+    <!-- Load TensorFlow.js core first -->
     <script src="https://jsdelivr.net"></script>
+    <!-- Load the WebGL acceleration converter backend -->
     <script src="https://jsdelivr.net"></script>
-    <script src="https://jsdelivr.net"></script>
+    <!-- Load the unified pose-detection API shell -->
     <script src="https://jsdelivr.net"></script>
 
     <style>
@@ -22,12 +23,10 @@
 <body>
 
     <h1>AI Body Skeleton Tracker</h1>
-    <div id="status">Loading machine learning models... Please wait.</div>
+    <div id="status">Starting setup routine...</div>
 
     <div class="container">
-        <!-- Webcam input element (hidden visually but active for data) -->
         <video id="webcam" autoplay playsinline muted style="transform: scaleX(-1);"></video>
-        <!-- Overlay canvas where the skeleton is drawn -->
         <canvas id="output" style="transform: scaleX(-1);"></canvas>
     </div>
 
@@ -37,33 +36,34 @@
         let canvas = document.getElementById('output');
         let ctx = canvas.getContext('2d');
 
-        // Main entry point to launch webcam and AI tracking
         async function main() {
             try {
-                // Initialize the MediaPipe Pose detector
-                const model = poseDetection.SupportedModels.BlazePose;
+                document.getElementById('status').innerText = '1/2: Loading lightweight AI model...';
+                
+                // Initialize the backend converter acceleration engine
+                await tf.setBackend('webgl');
+                
+                // Use MoveNet which builds directly into the engine, preventing loop crashes
+                const model = poseDetection.SupportedModels.MoveNet;
                 detector = await poseDetection.createDetector(model, {
-                    runtime: 'mediapipe',
-                    solutionPath: 'https://jsdelivr.net'
+                    modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
                 });
                 
-                document.getElementById('status').innerText = 'Model Loaded! Requesting webcam access...';
+                document.getElementById('status').innerText = '2/2: Requesting camera hardware permission...';
                 await setupCamera();
                 
-                document.getElementById('status').innerText = 'Tracking active! Stand back so the camera sees your body.';
+                document.getElementById('status').innerText = 'Tracking online! Step fully into view.';
                 
-                // Match visual display resolutions
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 
                 trackBody();
             } catch (err) {
-                document.getElementById('status').innerText = 'Error: ' + err.message;
+                document.getElementById('status').innerText = 'Initialization Failed: ' + err.message;
                 console.error(err);
             }
         }
 
-        // Connect the user's webcam hardware to the video tag
         async function setupCamera() {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: 640, height: 480 },
@@ -75,27 +75,23 @@
             });
         }
 
-        // Recursive loop that tracks positions frame by frame
         async function trackBody() {
-            const poses = await detector.estimatePoses(video);
+            if (!detector) return;
             
-            // Clear previous canvas frame
+            const poses = await detector.estimatePoses(video);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (poses.length > 0) {
-                const keypoints = poses[0].keypoints;
-                drawSkeleton(keypoints);
+            if (poses && poses.length > 0) {
+                drawSkeleton(poses[0].keypoints);
             }
 
-            // Continuously request the next framework refresh
             requestAnimationFrame(trackBody);
         }
 
-        // Renders visual joints and connecting lines on screen
         function drawSkeleton(keypoints) {
-            // Draw joint dots
+            // Draw joint dots if detector is confident
             keypoints.forEach(keypoint => {
-                if (keypoint.score > 0.5) { // Only draw if confident
+                if (keypoint.score > 0.4) {
                     ctx.beginPath();
                     ctx.arc(keypoint.x, keypoint.y, 6, 0, 2 * Math.PI);
                     ctx.fillStyle = '#00ff88';
@@ -103,24 +99,37 @@
                 }
             });
 
-            // Connect lines between major matching joint pairs
-            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
-            connections.forEach(([i, j]) => {
-                const kp1 = keypoints[i];
-                const kp2 = keypoints[j];
-                
-                if (kp1.score > 0.5 && kp2.score > 0.5) {
+            // Connect specific joints mapping rules for basic human frame geometry
+            const connections = [
+                ['left_shoulder', 'right_shoulder'],
+                ['left_shoulder', 'left_elbow'],
+                ['left_elbow', 'left_wrist'],
+                ['right_shoulder', 'right_elbow'],
+                ['right_elbow', 'right_wrist'],
+                ['left_shoulder', 'left_hip'],
+                ['right_shoulder', 'right_hip'],
+                ['left_hip', 'right_hip'],
+                ['left_hip', 'left_knee'],
+                ['left_knee', 'left_ankle'],
+                ['right_hip', 'right_knee'],
+                ['right_knee', 'right_ankle']
+            ];
+
+            connections.forEach(([partA, partB]) => {
+                const kp1 = keypoints.find(k => k.name === partA);
+                const kp2 = keypoints.find(k => k.name === partB);
+
+                if (kp1 && kp2 && kp1.score > 0.4 && kp2.score > 0.4) {
                     ctx.beginPath();
                     ctx.moveTo(kp1.x, kp1.y);
                     ctx.lineTo(kp2.x, kp2.y);
                     ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 3;
+                    ctx.lineWidth = 4;
                     ctx.stroke();
                 }
             });
         }
 
-        // Run setup routine on page load
         window.onload = main;
     </script>
 </body>
