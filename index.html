@@ -3,31 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fast AI Skeleton Tracker</title>
+    <title>Fixed Skeleton Tracker</title>
     
-    <!-- Load TensorFlow.js core first -->
+    <!-- Load required processing libraries in correct order -->
     <script src="https://jsdelivr.net"></script>
-    <!-- Load the WebGL acceleration converter backend -->
     <script src="https://jsdelivr.net"></script>
-    <!-- Load the unified pose-detection API shell -->
     <script src="https://jsdelivr.net"></script>
 
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        .container { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 8px; overflow: hidden; }
-        video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; }
-        canvas { z-index: 10; }
-        #status { font-weight: bold; color: #00ff88; margin-top: 10px; }
+        .container { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 8px; border: 3px solid #333; }
+        /* Keep video hidden so it doesn't block the visual canvas layers */
+        video { display: none; }
+        canvas { width: 640px; height: 480px; transform: scaleX(-1); border-radius: 5px; }
+        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.1rem; }
     </style>
 </head>
 <body>
 
     <h1>AI Body Skeleton Tracker</h1>
-    <div id="status">Starting setup routine...</div>
+    <div id="status">Starting camera feed initialization...</div>
 
     <div class="container">
-        <video id="webcam" autoplay playsinline muted style="transform: scaleX(-1);"></video>
-        <canvas id="output" style="transform: scaleX(-1);"></canvas>
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="output"></canvas>
     </div>
 
     <script>
@@ -38,28 +37,25 @@
 
         async function main() {
             try {
-                document.getElementById('status').innerText = '1/2: Loading lightweight AI model...';
-                
-                // Initialize the backend converter acceleration engine
+                document.getElementById('status').innerText = 'Initializing WebGL Engine...';
                 await tf.setBackend('webgl');
                 
-                // Use MoveNet which builds directly into the engine, preventing loop crashes
-                const model = poseDetection.SupportedModels.MoveNet;
-                detector = await poseDetection.createDetector(model, {
+                document.getElementById('status').innerText = 'Downloading tracking model framework...';
+                detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
                     modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
                 });
                 
-                document.getElementById('status').innerText = '2/2: Requesting camera hardware permission...';
+                document.getElementById('status').innerText = 'Requesting camera system permissions...';
                 await setupCamera();
                 
-                document.getElementById('status').innerText = 'Tracking online! Step fully into view.';
+                document.getElementById('status').innerText = 'Tracking fully active! Stand back.';
                 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                canvas.width = 640;
+                canvas.height = 480;
                 
-                trackBody();
+                trackLoop();
             } catch (err) {
-                document.getElementById('status').innerText = 'Initialization Failed: ' + err.message;
+                document.getElementById('status').innerText = 'Error detected: ' + err.message;
                 console.error(err);
             }
         }
@@ -75,57 +71,55 @@
             });
         }
 
-        async function trackBody() {
-            if (!detector) return;
-            
-            const poses = await detector.estimatePoses(video);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        async function trackLoop() {
+            // Step 1: Force print the raw video frames onto the canvas display first
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            if (poses && poses.length > 0) {
-                drawSkeleton(poses[0].keypoints);
+            // Step 2: Extract positional data arrays directly out of the generated canvas pixels
+            if (detector) {
+                const poses = await detector.estimatePoses(canvas);
+                if (poses && poses.length > 0) {
+                    drawBones(poses[0].keypoints);
+                }
             }
 
-            requestAnimationFrame(trackBody);
+            // Step 3: Loop infinitely
+            requestAnimationFrame(trackLoop);
         }
 
-        function drawSkeleton(keypoints) {
-            // Draw joint dots if detector is confident
-            keypoints.forEach(keypoint => {
-                if (keypoint.score > 0.4) {
-                    ctx.beginPath();
-                    ctx.arc(keypoint.x, keypoint.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#00ff88';
-                    ctx.fill();
-                }
-            });
-
-            // Connect specific joints mapping rules for basic human frame geometry
-            const connections = [
-                ['left_shoulder', 'right_shoulder'],
-                ['left_shoulder', 'left_elbow'],
-                ['left_elbow', 'left_wrist'],
-                ['right_shoulder', 'right_elbow'],
-                ['right_elbow', 'right_wrist'],
-                ['left_shoulder', 'left_hip'],
-                ['right_shoulder', 'right_hip'],
-                ['left_hip', 'right_hip'],
-                ['left_hip', 'left_knee'],
-                ['left_knee', 'left_ankle'],
-                ['right_hip', 'right_knee'],
-                ['right_knee', 'right_ankle']
+        function drawBones(keypoints) {
+            // Visual coordinate matching configurations for joints
+            const lines = [
+                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'],
+                ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'],
+                ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
+                ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
+                ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+                ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
             ];
 
-            connections.forEach(([partA, partB]) => {
-                const kp1 = keypoints.find(k => k.name === partA);
-                const kp2 = keypoints.find(k => k.name === partB);
+            // Render skeleton vector strokes
+            lines.forEach(([startPoint, endPoint]) => {
+                const kp1 = keypoints.find(k => k.name === startPoint);
+                const kp2 = keypoints.find(k => k.name === endPoint);
 
-                if (kp1 && kp2 && kp1.score > 0.4 && kp2.score > 0.4) {
+                if (kp1 && kp2 && kp1.score > 0.3 && kp2.score > 0.3) {
                     ctx.beginPath();
                     ctx.moveTo(kp1.x, kp1.y);
                     ctx.lineTo(kp2.x, kp2.y);
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#00ff88'; // Neon green bones
+                    ctx.lineWidth = 5;
                     ctx.stroke();
+                }
+            });
+
+            // Render joint targets
+            keypoints.forEach(kp => {
+                if (kp.score > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#ffffff'; // Bright white joints
+                    ctx.fill();
                 }
             });
         }
