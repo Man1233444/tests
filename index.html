@@ -3,108 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant AI Skeleton Tracker</title>
+    <title>Fixed Camera Skeleton Tracker</title>
     
-    <!-- Load highly reliable p5.js and ml5.js animation frameworks -->
-    <script src="https://cloudflare.com"></script>
-    <script src="https://unpkg.com"></script>
+    <!-- Load clean, standalone TensorFlow and Pose models directly -->
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
 
     <style>
         body { font-family: system-ui, sans-serif; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-        #canvas-holder { display: inline-block; margin-top: 20px; border: 4px solid #333; border-radius: 12px; overflow: hidden; background: #222; }
-        #status { font-weight: bold; color: #00ff88; margin-top: 10px; font-size: 1.2rem; }
+        .box { position: relative; width: 640px; height: 480px; margin: 20px auto; background: #222; border-radius: 10px; overflow: hidden; border: 3px solid #333; }
+        video { position: absolute; top:0; left:0; width: 640px; height: 480px; transform: scaleX(-1); }
+        canvas { position: absolute; top:0; left:0; width: 640px; height: 480px; transform: scaleX(-1); z-index: 5; }
+        button { background: #00ff88; color: #111; font-weight: bold; border: none; padding: 12px 24px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #00cc6e; }
+        #status { font-weight: bold; color: #ffcc00; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>Instant AI Skeleton Tracker</h1>
-    <div id="status">Loading stable body tracker engine...</div>
-    
-    <!-- Container where the automated video system injects itself -->
-    <div id="canvas-holder"></div>
+    <h1>AI Body Skeleton Tracker</h1>
+    <p>If your browser didn't prompt you, click the force button below:</p>
+    <button onclick="startTracker()">Force Start Camera</button>
+    <div id="status">Waiting for user command...</div>
+
+    <div class="box">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="output"></canvas>
+    </div>
 
     <script>
-        let video;
-        let bodyPose;
-        let poses = [];
+        let detector;
+        let video = document.getElementById('webcam');
+        let canvas = document.getElementById('output');
+        let ctx = canvas.getContext('2d');
 
-        // Runs first to pull up dependencies
-        function preload() {
-            // Load the stable, quick-response MoveNet lightning model
-            bodyPose = ml5.bodyPose('MoveNet', { modelType: 'LIGHTNING' });
-        }
-
-        // Sets up layout screen variables automatically
-        function setup() {
-            // Create a clean canvas display and nest it in our custom HTML container
-            let canvas = createCanvas(640, 480);
-            canvas.parent('canvas-holder');
-
-            // Hook up webcam hardware
-            video = createCapture(VIDEO);
-            video.size(640, 480);
-            video.hide(); // Hide raw input; we will manually mirror and paint it
-
-            // Fire tracking routine continuously on the feed
-            bodyPose.detectStart(video, gotPoses);
-        }
-
-        // Visual loop executing at 60 frames per second
-        function draw() {
-            // Step 1: Flip coordinates horizontally to mirror your movement naturally
-            translate(width, 0);
-            scale(-1, 1);
-
-            // Step 2: Draw the webcam image frame onto the background canvas matrix
-            image(video, 0, 0, width, height);
-
-            // Step 3: Check if a physical human frame has been verified by the AI
-            if (poses.length > 0) {
-                let currentPose = poses[0];
-                document.getElementById('status').innerText = 'System Running! Step back into frame.';
+        async function startTracker() {
+            document.getElementById('status').innerText = 'Requesting hardware permission...';
+            try {
+                // Step 1: Force request camera stream first
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 },
+                    audio: false
+                });
+                video.srcObject = stream;
                 
-                drawSkeletonBones(currentPose);
-                drawJointDots(currentPose);
+                document.getElementById('status').innerText = 'Camera linked! Loading AI skeleton engine...';
+                
+                // Step 2: Initialize basic mathematical processing tools
+                await tf.setBackend('webgl');
+                detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+                
+                canvas.width = 640;
+                canvas.height = 480;
+                document.getElementById('status').innerText = 'Active! Step into frame.';
+                
+                track();
+            } catch (err) {
+                document.getElementById('status').innerText = 'Blocked: ' + err.message + '. Check browser settings.';
+                console.error(err);
             }
         }
 
-        // Realtime data callback pipeline
-        function gotPoses(results) {
-            poses = results;
-            if(poses.length > 0) {
-                 document.getElementById('status').innerText = 'Body Detected!';
-            }
-        }
-
-        // Connect the skeleton lines between joint structures
-        function drawSkeletonBones(pose) {
-            stroke(0, 255, 136); // Neon Green lines
-            strokeWeight(5);
-
-            // Pre-built skeleton connections mapping list inside ml5
-            if (bodyPose.skeleton) {
-                let skeleton = bodyPose.getSkeleton(pose);
-                for (let i = 0; i < skeleton.length; i++) {
-                    let partA = skeleton[i][0];
-                    let partB = skeleton[i][1];
-                    // Render vectors connecting coordinate anchors
-                    line(partA.x, partA.y, partB.x, partB.y);
+        async function track() {
+            if (detector && video.readyState >= 2) {
+                const poses = await detector.estimatePoses(video);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                if (poses && poses.length > 0) {
+                    drawSkeleton(poses[0].keypoints);
                 }
             }
+            requestAnimationFrame(track);
         }
 
-        // Overlay bright points over the active bones
-        function drawJointDots(pose) {
-            fill(255, 255, 255); // Solid white centers
-            noStroke();
-            
-            for (let i = 0; i < pose.keypoints.length; i++) {
-                let kp = pose.keypoints[i];
-                // Only draw a tracking circle if the AI model threshold confidence is met
-                if (kp.confidence > 0.3) {
-                    circle(kp.x, kp.y, 12);
+        function drawSkeleton(keypoints) {
+            // Draw joint dots
+            keypoints.forEach(kp => {
+                if (kp.score > 0.4) {
+                    ctx.beginPath();
+                    ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
                 }
-            }
+            });
+
+            // Map paths for limbs
+            const bones = [
+                [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
+                [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]
+            ];
+
+            bones.forEach(([s, e]) => {
+                const kp1 = keypoints[s];
+                const kp2 = keypoints[e];
+                if (kp1.score > 0.4 && kp2.score > 0.4) {
+                    ctx.beginPath();
+                    ctx.moveTo(kp1.x, kp1.y);
+                    ctx.lineTo(kp2.x, kp2.y);
+                    ctx.strokeStyle = '#00ff88';
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                }
+            });
         }
     </script>
 </body>
