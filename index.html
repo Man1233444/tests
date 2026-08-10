@@ -1,25 +1,32 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="utf-8">
     <title>My First WebXR Game</title>
-    <!-- Include the A-Frame Library -->
+    <!-- Core A-Frame Library for 3D/VR rendering -->
     <script src="https://aframe.io"></script>
+    <!-- Environment component to automatically generate a beautiful ground and sky -->
+    <script src="https://unpkg.com"></script>
   </head>
   <body>
-    <!-- The Scene holds all 3D objects -->
-    <a-scene xr-mode-ui="enabled: true">
-      <!-- 3D Shapes -->
-      <a-box position="-1 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
-      <a-sphere position="0 1.25 -5" radius="1.25" color="#EF2D5E"></a-sphere>
-      <a-cylinder position="1 0.75 -3" radius="0.5" height="1.5" color="#FFC65D"></a-cylinder>
-      <a-plane position="0 0 -4" rotation="-90 0 0" width="4" height="4" color="#7BC8A4"></a-plane>
+    <!-- The VR Scene -->
+    <a-scene>
       
-      <!-- Sky/Background color -->
-      <a-sky color="#ECECEC"></a-sky>
+      <!-- Generated 3D World (Forest theme with mountains and trees) -->
+      
 
-      <!-- VR Controllers Tracker -->
+      <!-- Center Shapes you can look at -->
+      <a-box position="-1 0.75 -3" rotation="0 45 0" color="#4CC3D9" shadow></a-box>
+      <a-sphere position="0 1.5 -5" radius="1.25" color="#EF2D5E" shadow></a-sphere>
+      <a-cylinder position="1 0.75 -3" radius="0.5" height="1.5" color="#FFC65D" shadow></a-cylinder>
+
+      <!-- Active VR Controller Support (Shows virtual hands/controllers in your Quest) -->
       
       
+
+      <!-- Fallback camera for desktop testing (WASD keys to move, mouse drag to look) -->
+      
+
     </a-scene>
   </body>
 </html>
